@@ -37,7 +37,7 @@ class VolumeDispatcher(LoggingProcess):
         max_queue_size=1200,
     ):
         super().__init__(name="dispatcher")
-        self.stop_event = stop_event
+        self.stop_event = stop_event.new_reference(self.logger)
         self.saving_signal = saving_signal.new_reference(self.logger)
         self.wait_signal = wait_signal.new_reference(self.logger)
         self.noise_subtraction_active = noise_subtraction_on.new_reference(self.logger)

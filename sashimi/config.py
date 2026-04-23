@@ -13,7 +13,7 @@ CONFIG_PATH = CONFIG_DIR_PATH / CONFIG_FILENAME
 
 # 2 level dictionary for sections and values:
 TEMPLATE_CONF_DICT = {
-    "scanning": "mock",
+    "scanning": "ni",
     "scopeless": False,
     "sample_rate": 40000,
     "voxel_size": {

@@ -3,7 +3,7 @@ from sashimi.hardware.scanning.__init__ import AbstractScanInterface
 from contextlib import contextmanager
 
 from nidaqmx.task import Task
-from nidaqmx.constants import Edge, AcquisitionType
+from nidaqmx.constants import Edge, AcquisitionType, RegenerationMode
 from nidaqmx.stream_readers import AnalogSingleChannelReader
 from nidaqmx.stream_writers import AnalogMultiChannelWriter
 
@@ -35,6 +35,7 @@ class NIBoards(AbstractScanInterface):
         self.z_reader = AnalogSingleChannelReader(read_task.in_stream)
 
         self.ao_array = np.zeros((4, self.n_samples))
+        self.playback_waveform = None
 
         self.read_array = np.zeros(self.n_samples)
 
@@ -88,8 +89,33 @@ class NIBoards(AbstractScanInterface):
         self.read_task.start()
         self.write_task.start()
 
+    def stop(self):
+        for task in (self.read_task, self.write_task):
+            try:
+                task.stop()
+            except Exception:
+                pass
+
     def write(self):
         self.writer.write_many_sample(self.ao_array)
+
+    def configure_playback(self, waveform):
+        self.stop()
+        self.playback_waveform = np.ascontiguousarray(waveform, dtype=np.float64)
+
+        self.write_task.out_stream.regen_mode = RegenerationMode.ALLOW_REGENERATION
+        self.write_task.out_stream.output_buf_size = self.playback_waveform.shape[1]
+        self.write_task.timing.cfg_samp_clk_timing(
+            rate=self.sample_rate,
+            source="OnboardClock",
+            active_edge=Edge.RISING,
+            sample_mode=AcquisitionType.CONTINUOUS,
+            samps_per_chan=self.playback_waveform.shape[1],
+        )
+        self.writer.write_many_sample(self.playback_waveform)
+
+    def start_playback(self):
+        self.write_task.start()
 
     def read(self):
         self.z_reader.read_many_sample(

@@ -261,8 +261,10 @@ class State:
         self.calibration_ref = None
         self.waveform = None
         self.current_plane = 0
+        self.volume_waveforms_dirty = False
         self.stop_event = LoggedEvent(self.logger, SashimiEvents.CLOSE_ALL)
         self.restart_event = LoggedEvent(self.logger, SashimiEvents.RESTART_SCANNING)
+        self.prepare_event = LoggedEvent(self.logger, SashimiEvents.PREPARE_SCANNING)
         self.noise_subtraction_active = LoggedEvent(
             self.logger, SashimiEvents.NOISE_SUBTRACTION_ACTIVE, Event()
         )
@@ -280,6 +282,7 @@ class State:
         self.scanner = ScannerProcess(
             stop_event=self.stop_event,
             restart_event=self.restart_event,
+            prepare_event=self.prepare_event,
             waiting_event=self.is_waiting_event,
             sample_rate=self.sample_rate,
         )
@@ -302,11 +305,14 @@ class State:
             is_saving_event=self.is_saving_event,
             duration_queue=self.experiment_duration_queue,
         )
+        self.saver_stopped_signal = self.saver.saver_stopped_signal.new_reference(
+            self.logger
+        )
 
         self.dispatcher = VolumeDispatcher(
             stop_event=self.stop_event,
-            saving_signal=self.saver.saving_signal,
-            wait_signal=self.scanner.wait_signal,
+            saving_signal=self.is_saving_event,
+            wait_signal=self.is_waiting_event,
             noise_subtraction_on=self.noise_subtraction_active,
             camera_queue=self.camera.image_queue,
             saver_queue=self.saver.save_queue,
@@ -339,11 +345,13 @@ class State:
 
         self.status.sig_param_changed.connect(self.change_global_state)
 
-        self.planar_setting.sig_param_changed.connect(self.send_scansave_settings)
-        self.calibration.z_settings.sig_param_changed.connect(self.send_scan_settings)
-        self.volume_setting.sig_param_changed.connect(self.send_scan_settings)
+        self.planar_setting.sig_param_changed.connect(self.handle_planar_settings_change)
+        self.calibration.z_settings.sig_param_changed.connect(
+            self.handle_calibration_settings_change
+        )
+        self.volume_setting.sig_param_changed.connect(self.handle_volume_settings_change)
 
-        self.save_settings.sig_param_changed.connect(self.send_scansave_settings)
+        self.save_settings.sig_param_changed.connect(self.handle_save_settings_change)
 
         self.camera.start()
         self.scanner.start()
@@ -351,10 +359,9 @@ class State:
         self.dispatcher.start()
 
         self.current_binning = conf["camera"]["default_binning"]
-        self.send_scansave_settings()
-        self.logger.log_message("initialized")
-
         self.voxel_size = None
+        self.send_preview_scansave_settings()
+        self.logger.log_message("initialized")
 
     def run_camera_live(self):
         self.live_camera_state = LiveCameraState.RUNNING
@@ -362,7 +369,10 @@ class State:
 
     def pause_camera_live(self):
         self.live_camera_state = LiveCameraState.PAUSED
+
         self.send_camera_settings()
+        if self.global_state == GlobalState.PREVIEW:
+            self.send_preview_scansave_settings()
 
     def restore_tree(self, restore_file):
         with open(restore_file, "r") as f:
@@ -373,6 +383,7 @@ class State:
             json.dump(clean_json(self.settings_tree.serialize()), f)
 
     def change_global_state(self):
+        previous_global_state = self.global_state
         self.global_state = scanning_to_global_state[self.status.scanning_state]
 
         if self.current_exp_state != GlobalState.EXPERIMENT_RUNNING:
@@ -380,18 +391,78 @@ class State:
             self.prev_exp_state = self.current_exp_state
 
         self.send_camera_settings()
-        self.send_scansave_settings()
+        if self.global_state == GlobalState.VOLUME_PREVIEW:
+            self.refresh_volume_waveforms()
+        else:
+            if previous_global_state == GlobalState.VOLUME_PREVIEW:
+                self.restart_event.set()
+            self.send_preview_scansave_settings()
 
     def send_camera_settings(self):
         self.camera.image_queue.clear()
         self.camera.parameter_queue.put(self.camera_params)
 
-    def send_scan_settings(self, param_changed=None):
-        # Restart scanning loop if scanning params have changed:
-        if self.global_state == GlobalState.VOLUME_PREVIEW:
-            self.restart_event.set()
+    def handle_planar_settings_change(self, param_changed=None):
+        del param_changed
+        if self.global_state == GlobalState.PREVIEW:
+            self.send_preview_scansave_settings()
+        elif self.global_state == GlobalState.VOLUME_PREVIEW:
+            self.mark_volume_waveforms_dirty()
 
-        self.send_scansave_settings()
+    def handle_calibration_settings_change(self, param_changed=None):
+        del param_changed
+        if self.global_state == GlobalState.PREVIEW:
+            self.send_preview_scansave_settings()
+
+    def handle_volume_settings_change(self, param_changed=None):
+        del param_changed
+        self.voxel_size = get_voxel_size(self.volume_setting, self.camera_settings)
+        if self.global_state == GlobalState.VOLUME_PREVIEW:
+            self.mark_volume_waveforms_dirty()
+
+    def handle_calibration_points_change(self):
+        self.mark_volume_waveforms_dirty()
+
+    def mark_volume_waveforms_dirty(self):
+        self.volume_waveforms_dirty = True
+
+    def has_valid_calibration(self):
+        return (
+            self.calibration.calibration is not None
+            and len(self.calibration.calibrations_points) >= 2
+        )
+
+    def handle_save_settings_change(self, param_changed=None):
+        del param_changed
+        self.voxel_size = get_voxel_size(self.volume_setting, self.camera_settings)
+        self.saver.saving_parameter_queue.put(self.save_params)
+
+    def send_preview_scansave_settings(self):
+        self.current_plane = 0
+        self.scanner.parameter_queue.put(self.scan_params)
+        self.voxel_size = get_voxel_size(self.volume_setting, self.camera_settings)
+        self.saver.saving_parameter_queue.put(self.save_params)
+        self.dispatcher.n_planes_queue.put(1)
+
+    def restart_volume_playback(self):
+        if self.global_state != GlobalState.VOLUME_PREVIEW:
+            return
+
+        self.current_plane = min(self.current_plane, self.n_planes - 1)
+        self.is_waiting_event.set()
+        self.scanner.parameter_queue.put(self.scan_params)
+        self.voxel_size = get_voxel_size(self.volume_setting, self.camera_settings)
+        self.saver.saving_parameter_queue.put(self.save_params)
+        self.dispatcher.n_planes_queue.put(self.n_planes)
+        self.restart_event.set()
+
+    def refresh_volume_waveforms(self):
+        if self.global_state != GlobalState.VOLUME_PREVIEW:
+            return
+
+        self.volume_waveforms_dirty = False
+        self.prepare_event.set()
+        self.restart_volume_playback()
 
     @property
     def n_planes(self):
@@ -469,17 +540,6 @@ class State:
 
         return all_settings
 
-    def send_scansave_settings(self):
-        # Make sure that current plane is updated if we changed number of planes
-        if self.global_state == GlobalState.VOLUME_PREVIEW:
-            self.current_plane = min(self.current_plane, self.n_planes - 1)
-
-        self.scanner.parameter_queue.put(self.scan_params)
-
-        self.voxel_size = get_voxel_size(self.volume_setting, self.camera_settings)
-        self.saver.saving_parameter_queue.put(self.save_params)
-        self.dispatcher.n_planes_queue.put(self.n_planes)
-
     def start_experiment(self) -> None:
         """
         Sets all the signals and cleans the queue
@@ -491,12 +551,16 @@ class State:
 
         self.current_exp_state = GlobalState.EXPERIMENT_RUNNING
         self.logger.log_message("started experiment")
-        self.scanner.wait_signal.set()
-        self.send_scansave_settings()
+        if self.global_state == GlobalState.VOLUME_PREVIEW:
+            if self.volume_waveforms_dirty:
+                self.refresh_volume_waveforms()
+            else:
+                self.restart_volume_playback()
+        else:
+            self.send_preview_scansave_settings()
         self.send_manual_duration()
-        self.restart_event.set()
-        self.saver.save_queue.empty()
-        self.camera.image_queue.empty()
+        self.saver.save_queue.clear()
+        self.camera.image_queue.clear()
         time.sleep(0.01)
         self.is_saving_event.set()
 
@@ -508,7 +572,10 @@ class State:
         self.logger.log_message("experiment ended")
         self.is_saving_event.clear()
         self.saver.save_queue.clear()
-        self.send_scansave_settings()
+        if self.global_state == GlobalState.VOLUME_PREVIEW:
+            self.restart_volume_playback()
+        else:
+            self.send_preview_scansave_settings()
         self.current_exp_state = self.global_state
 
     def is_exp_started(self) -> bool:
@@ -596,7 +663,10 @@ class State:
         return get_last_parameters(self.camera.triggered_frame_rate_queue)
 
     def get_waveform(self):
-        return get_last_parameters(self.scanner.waveform_queue)
+        waveform = get_last_parameters(self.scanner.waveform_queue)
+        if waveform is not None:
+            self.waveform = waveform
+        return self.waveform
 
     def calculate_pulse_times(self):
         return np.arange(

@@ -8,8 +8,12 @@ class MockBoard(AbstractScanInterface):
     def __init__(self, sample_rate, n_samples, conf):
         super().__init__(sample_rate, n_samples, conf)
         self.piezo_array = np.zeros(n_samples)
+        self.playback_waveform = None
 
     def start(self):
+        pass
+
+    def stop(self):
         pass
 
     def read(self):
@@ -17,6 +21,12 @@ class MockBoard(AbstractScanInterface):
 
     def write(self):
         sleep(0.05)
+
+    def configure_playback(self, waveform):
+        self.playback_waveform = waveform.copy()
+
+    def start_playback(self):
+        pass
 
     @property
     def piezo(self):

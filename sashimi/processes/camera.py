@@ -137,6 +137,8 @@ class CameraProcess(LoggingProcess):
         while not self.stop_event.is_set():
             # removed if statement based on camera mode: toggeling between modes is done in loops.
             self.pause_loop()
+            if self.stop_event.is_set():
+                break
             self.camera_loop()
 
     def pause_loop(self):

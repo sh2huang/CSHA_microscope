@@ -17,11 +17,9 @@ from pathlib import Path
 
 @click.command()
 @click.option("--scopeless", is_flag=True, help="Scopeless mode for simulated hardware")
-@click.option("--scanning", default="mock", help="The scanning interface")
-def main(scopeless, scanning, **kwargs):
+def main(scopeless):
     cli_edit_config("scopeless", scopeless)
-    cli_edit_config("scanning", scanning)
-
+    cli_edit_config("scanning", "mock" if scopeless else "ni")
 
     app = QApplication([])
     style = qdarkstyle.load_stylesheet_pyqt5()

@@ -30,7 +30,6 @@ def _prepare_thorlabs_runtime():
         raise CameraException(
             "Missing Thorlabs DLL path. Set "
             "[thorlabs_sdk].dll_dir in hardware_config.toml "
-            "or THORLABS_SDK_DLL_DIR in the environment."
         )
 
     dll_dir = Path(dll_dir)
@@ -86,12 +85,6 @@ class ThorlabsCamera(AbstractCamera):
         self.available_serials = []
         self.serial_number = None
 
-        self._roi = (
-            0,
-            0,
-            int(self.max_sensor_resolution[0]),
-            int(self.max_sensor_resolution[1]),
-        )
         self._trigger_mode = None
         self._is_armed = False
 
@@ -139,6 +132,7 @@ class ThorlabsCamera(AbstractCamera):
 
             # Apply defaults in a safe order
             self.binning = conf["camera"]["default_binning"]
+            self._roi = self._full_frame_roi_display()
             self.roi = self._roi
             self.exposure_time = conf["camera"]["default_exposure"]
 
@@ -149,6 +143,14 @@ class ThorlabsCamera(AbstractCamera):
         except Exception:
             self.shutdown()
             raise
+
+    def _full_frame_roi_display(self):
+        return (
+            0,
+            0,
+            int(self.max_sensor_resolution[0] // self.binning),
+            int(self.max_sensor_resolution[1] // self.binning),
+        )
 
     # ------------------------------------------------------------------
     # Basic properties
@@ -167,6 +169,9 @@ class ThorlabsCamera(AbstractCamera):
             raise CameraException(
                 f"Could not set Thorlabs binning to {n_bin}"
             ) from exc
+
+        if hasattr(self, "_roi") and self._roi is not None:
+            self._roi = self._full_frame_roi_display()
 
     @property
     def exposure_time(self):
@@ -204,11 +209,9 @@ class ThorlabsCamera(AbstractCamera):
     @roi.setter
     def roi(self, exp_val: tuple):
         """
-        exp_val follows sashimi convention:
+        exp_val uses sashimi convention:
             (vpos, hpos, vsize, hsize)
         in displayed / post-binning coordinates.
-
-        This is converted back to sensor coordinates before sending to the camera.
         """
         if len(exp_val) != 4:
             raise CameraException(f"ROI must have length 4, got {exp_val}")
@@ -218,27 +221,30 @@ class ThorlabsCamera(AbstractCamera):
         if vsize <= 0 or hsize <= 0:
             raise CameraException(f"Invalid ROI size: {exp_val}")
 
-        # Convert from display coordinates back to sensor coordinates
-        top_px = vpos * self.binning
-        left_px = hpos * self.binning
-        height_px = vsize * self.binning
-        width_px = hsize * self.binning
+        max_v = int(self.max_sensor_resolution[0] // self.binning)
+        max_h = int(self.max_sensor_resolution[1] // self.binning)
 
-        actual_top_px, actual_left_px, actual_height_px, actual_width_px = (
-            self._apply_roi_sensor_units(
-                top_px=top_px,
-                left_px=left_px,
-                height_px=height_px,
-                width_px=width_px,
+        # clamp in displayed coordinates
+        vpos = max(0, min(vpos, max_v - 1))
+        hpos = max(0, min(hpos, max_h - 1))
+        vsize = max(1, min(vsize, max_v - vpos))
+        hsize = max(1, min(hsize, max_h - hpos))
+
+        actual_top_px, actual_left_px, actual_vsize, actual_hsize = (
+            self._apply_roi_display_units(
+                top_disp=vpos,
+                left_disp=hpos,
+                height_disp=vsize,
+                width_disp=hsize,
             )
         )
 
-        # Store back in sashimi coordinates after any hardware nudging/clamping
+        # store back in sashimi coordinates
         self._roi = (
             actual_top_px // self.binning,
             actual_left_px // self.binning,
-            actual_height_px // self.binning,
-            actual_width_px // self.binning,
+            actual_vsize,
+            actual_hsize,
         )
 
     @property
@@ -274,70 +280,85 @@ class ThorlabsCamera(AbstractCamera):
     def _normalize_trigger_mode(exp_val):
         return int(getattr(exp_val, "value", exp_val))
 
-    def _apply_roi_sensor_units(self, top_px, left_px, height_px, width_px):
+    def _apply_roi_display_units(self, top_disp, left_disp, height_disp, width_disp):
         """
-        Apply ROI in sensor coordinates.
-
-        Thorlabs ROI is represented as:
-            ROI(upper_left_x, upper_left_y, lower_right_x, lower_right_y)
-
-        The Python docs specify the corner representation but do not spell out
-        whether lower-right is inclusive or exclusive in a way that is safe to
-        assume blindly. To make this robust, we try both conventions and verify
-        the resulting reported image shape from the SDK.
+        Receive ROI in displayed/post-binning coordinates.
+        Convert once to sensor coordinates, try both inclusive and exclusive
+        lower-right conventions, then read back actual start position and
+        actual output size from the SDK.
         """
+        top_px = top_disp * self.binning
+        left_px = left_disp * self.binning
+        height_px = height_disp * self.binning
+        width_px = width_disp * self.binning
+
         sensor_h = int(self.max_sensor_resolution[0])
         sensor_w = int(self.max_sensor_resolution[1])
 
-        # Clamp start coordinates
-        top_px = max(0, min(top_px, sensor_h - 1))
-        left_px = max(0, min(left_px, sensor_w - 1))
-
-        # Clamp sizes
+        top_px = max(0, min(top_px, sensor_h - self.binning))
+        left_px = max(0, min(left_px, sensor_w - self.binning))
         height_px = max(self.binning, min(height_px, sensor_h - top_px))
         width_px = max(self.binning, min(width_px, sensor_w - left_px))
 
-        # Candidate 1: lower-right inclusive
-        inclusive_candidate = ROI(
-            left_px,
-            top_px,
-            left_px + width_px - 1,
-            top_px + height_px - 1,
-        )
+        candidates = [
+            ROI(
+                left_px,
+                top_px,
+                left_px + width_px - 1,
+                top_px + height_px - 1,
+            ),
+            ROI(
+                left_px,
+                top_px,
+                left_px + width_px,
+                top_px + height_px,
+            ),
+        ]
 
-        # Candidate 2: lower-right exclusive
-        exclusive_candidate = ROI(
-            left_px,
-            top_px,
-            left_px + width_px,
-            top_px + height_px,
-        )
-
+        best_result = None
+        best_error = None
         last_error = None
-        for candidate in (inclusive_candidate, exclusive_candidate):
+
+        for candidate in candidates:
             try:
                 self.camera.roi = candidate
 
-                actual_w = int(self.camera.image_width_pixels)
-                actual_h = int(self.camera.image_height_pixels)
+                actual_roi = self.camera.roi
+                actual_h_disp = int(self.camera.image_height_pixels)
+                actual_w_disp = int(self.camera.image_width_pixels)
 
-                if actual_w == width_px and actual_h == height_px:
-                    return top_px, left_px, height_px, width_px
+                actual_top_px = int(actual_roi.upper_left_y_pixels)
+                actual_left_px = int(actual_roi.upper_left_x_pixels)
+
+                err = abs(actual_h_disp - height_disp) + abs(actual_w_disp - width_disp)
+
+                result = (
+                    actual_top_px,
+                    actual_left_px,
+                    actual_h_disp,
+                    actual_w_disp,
+                )
+
+                if best_error is None or err < best_error:
+                    best_error = err
+                    best_result = result
+
+                if err == 0:
+                    return result
 
             except TLCameraError as exc:
                 last_error = exc
 
+        if best_result is not None:
+            return best_result
+
         if last_error is not None:
             raise CameraException(
-                f"Could not set ROI in sensor units: "
-                f"top={top_px}, left={left_px}, "
-                f"height={height_px}, width={width_px}"
+                f"Could not set ROI: top={top_disp}, left={left_disp}, "
+                f"height={height_disp}, width={width_disp}"
             ) from last_error
 
-        raise CameraException(
-            "Thorlabs SDK accepted an ROI candidate, but the resulting image shape "
-            "did not match the requested ROI."
-        )
+        raise CameraException("Thorlabs SDK did not accept any ROI candidate.")
 
     # ------------------------------------------------------------------
     # Acquisition control

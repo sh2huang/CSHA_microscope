@@ -49,7 +49,7 @@ class StackSaver(LoggingProcess):
         super().__init__(name="saver")
         self.stop_event = stop_event.new_reference(self.logger)
         self.save_queue = ArrayQueue(max_mbytes=max_queue_size)
-        self.saving_signal = is_saving_event
+        self.saving_signal = is_saving_event.new_reference(self.logger)
         self.saver_stopped_signal = LoggedEvent(
             self.logger, SashimiEvents.SAVING_STOPPED
         )

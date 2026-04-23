@@ -322,6 +322,7 @@ class CameraSettingsWidget(QWidget):
         can_pause = (
                 (not experiment_running)
                 and camera_running
+                and (self.state.global_state != GlobalState.VOLUME_PREVIEW)
         )
 
         self.btn_run_camera.setEnabled(can_run)

@@ -1,6 +1,8 @@
 import numpy as np
 from numba import jit
 
+CAMERA_TRIGGER_PULSE_S = 200e-6
+
 
 class Waveform:
     def __init__(self, *args, **kwargs):
@@ -61,9 +63,22 @@ class TriangleWaveform(Waveform):
         )
 
 
+def camera_trigger_pulse_samples(sample_rate, pulse_width_s=CAMERA_TRIGGER_PULSE_S):
+    return max(1, int(np.ceil(sample_rate * pulse_width_s)))
+
+
+def camera_trigger_pulse_duration_s(sample_rate, pulse_width_s=CAMERA_TRIGGER_PULSE_S):
+    return camera_trigger_pulse_samples(sample_rate, pulse_width_s) / sample_rate
+
+
 @jit(nopython=True)
-def set_impulses(buffer, n_planes, n_skip_start, n_skip_end, high=5):
+def set_impulses(
+    buffer, n_planes, n_skip_start, n_skip_end, width_samples=1, high=5
+):
     buffer[:] = 0
     n_between_planes = int(round(len(buffer) / n_planes))
+    pulse_width = max(1, min(width_samples, n_between_planes))
     for i in range(n_skip_start, n_planes - n_skip_end):
-        buffer[i * n_between_planes] = high
+        start = i * n_between_planes
+        stop = min(start + pulse_width, len(buffer))
+        buffer[start:stop] = high

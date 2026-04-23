@@ -2,6 +2,7 @@ from copy import deepcopy
 from dataclasses import dataclass, asdict
 from enum import Enum
 from multiprocessing.queues import Queue
+from time import sleep
 from typing import Tuple, Union
 from arrayqueues.shared_arrays import ArrayQueue
 
@@ -12,7 +13,13 @@ from scopecuisine.rolling_buffer import FillingRollingBuffer, RollingBuffer
 from sashimi.config import read_config
 from sashimi.processes.logging import ConcurrenceLogger
 from sashimi.utilities import lcm, get_last_parameters
-from sashimi.waveforms import TriangleWaveform, SawtoothWaveform, set_impulses
+from sashimi.waveforms import (
+    TriangleWaveform,
+    SawtoothWaveform,
+    set_impulses,
+    camera_trigger_pulse_samples,
+)
+from sashimi.hardware.scanning import ScanningError
 from sashimi.hardware.scanning.__init__ import AbstractScanInterface
 
 conf = read_config()
@@ -72,6 +79,14 @@ class ScanParameters:
     z: Union[ZScanning, ZManual] = ZManual()
     xy: PlanarScanning = PlanarScanning()
     triggering: TriggeringParameters = TriggeringParameters()
+
+
+@dataclass
+class PreparedVolumeWaveforms:
+    ao_waveforms: np.ndarray
+    measured_piezo: np.ndarray
+    z_period_samples: int
+    repeat_samples: int
 
 
 class ScanLoop:
@@ -235,21 +250,14 @@ class PlanarScanLoop(ScanLoop):
 
 
 class VolumetricScanLoop(ScanLoop):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, prepared_waveforms=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.z_waveform = SawtoothWaveform()
-        buffer_len = int(round(self.sample_rate / self.parameters.z.frequency))
-        self.recorded_signal = FillingRollingBuffer(buffer_len)
-        self.camera_pulses = RollingBuffer(buffer_len)
-        self.current_frequency = self.parameters.z.frequency
-        self.camera_on = False
-        self.trigger_exp_start = False
-        self.camera_was_off = True
+        self.prepared_waveforms = prepared_waveforms
         self.wait_signal.set()
 
     def initialize(self):
         super().initialize()
-        self.camera_on = False
         self.wait_signal.set()
 
     def loop_condition(self):
@@ -258,39 +266,21 @@ class VolumetricScanLoop(ScanLoop):
             and self.parameters.state == ScanningState.VOLUMETRIC
         )
 
-    def check_start(self):
-        super().check_start()
-        if (
-            self.parameters.experiment_state
-            == ExperimentPrepareState.EXPERIMENT_STARTED
-        ):
-            self.parameters.experiment_state = ExperimentPrepareState.PREVIEW
+    def z_period_samples(self):
+        return int(round(self.sample_rate / self.parameters.z.frequency))
 
-    def n_samples_period(self):
-        n_samples_trigger = int(round(self.sample_rate / self.parameters.z.frequency))
-        return max(n_samples_trigger, super().n_samples_period())
+    def repeat_samples(self):
+        return lcm(self.z_period_samples(), super().n_samples_period())
 
-    def update_settings(self):
-        updated = super().update_settings()
-        if not updated and not self.first_update:
-            return False
+    def _prepare_block_arrays(self):
+        self.board.z_galvo = 0
+        self.board.camera_trigger = 0
+        super().fill_arrays()
+        self.board.piezo = self.z_waveform.values(self.shifted_time)
 
-        if self.parameters.state != ScanningState.VOLUMETRIC:
-            return True
-
-        if self.parameters != self.old_parameters:
-            if self.parameters.z.frequency > 0.1:
-                full_period = int(round(self.sample_rate / self.parameters.z.frequency))
-                self.recorded_signal = FillingRollingBuffer(full_period)
-                self.camera_pulses = RollingBuffer(full_period)
-                self.initialize()
-
-        set_impulses(
-            self.camera_pulses.buffer,
-            self.parameters.triggering.n_planes,
-            n_skip_start=self.parameters.triggering.n_skip_start,
-            n_skip_end=self.parameters.triggering.n_skip_end,
-        )
+    def prepare_waveforms(self, n_cycles=10, keep_last=5):
+        self.wait_signal.set()
+        self.initialize()
 
         self.z_waveform = SawtoothWaveform(
             frequency=self.parameters.z.frequency,
@@ -298,63 +288,98 @@ class VolumetricScanLoop(ScanLoop):
             vmax=self.parameters.z.piezo_max,
         )
 
-        if not self.camera_on and self.n_samples_read > self.n_samples_period():
-            self.camera_on = True
-            self.trigger_exp_start = True
-        elif not self.camera_on:
-            self.wait_signal.set()
-        return True
+        z_period_samples = self.z_period_samples()
+        total_samples = n_cycles * z_period_samples
+        measured_piezo = np.empty(total_samples, dtype=np.float64)
+        write_pos = 0
 
-    def read(self):
-        super().read()
-        i_insert = (self.i_sample - self.n_samples) % len(self.recorded_signal.buffer)
-        self.recorded_signal.write(
-            self.board.piezo[
-                : min(len(self.recorded_signal.buffer), len(self.board.piezo))
-            ],
-            i_insert,
+        while write_pos < total_samples and self.loop_condition():
+            self._prepare_block_arrays()
+            self.write()
+            self.check_start()
+            self.read()
+
+            n_copy = min(self.n_samples, total_samples - write_pos)
+            measured_piezo[write_pos: write_pos + n_copy] = self.board.piezo[:n_copy]
+            write_pos += n_copy
+            self.i_sample += self.n_samples
+
+        self.board.stop()
+        self.started = False
+
+        if write_pos < total_samples:
+            raise ScanningError(
+                "Volume waveform preparation interrupted before completion."
+            )
+
+        measured_cycles = measured_piezo.reshape(n_cycles, z_period_samples)
+        averaged_piezo = np.mean(measured_cycles[-keep_last:], axis=0)
+        self.waveform_queue.put(averaged_piezo.copy())
+
+        repeat_samples = self.repeat_samples()
+        repeat_time = np.arange(repeat_samples, dtype=np.float64) / self.sample_rate
+        xy_repeat = self.xy_waveform.values(repeat_time)
+        piezo_repeat = self.z_waveform.values(repeat_time)
+
+        averaged_piezo_repeat = np.tile(
+            averaged_piezo,
+            repeat_samples // z_period_samples,
         )
-        self.waveform_queue.put(self.recorded_signal.buffer)
+        z_galvo_repeat = calc_sync(
+            averaged_piezo_repeat, self.parameters.z.galvo_sync
+        )
+        if np.any(np.abs(z_galvo_repeat) >= 2):
+            raise ScanningError(
+                "Prepared z galvo waveform exceeds the configured safe range."
+            )
 
-    def fill_arrays(self):
-        super().fill_arrays()
-        self.board.piezo = self.z_waveform.values(self.shifted_time)
-        i_sample = self.i_sample % len(self.recorded_signal.buffer)
+        camera_cycle = np.zeros(z_period_samples, dtype=np.float64)
+        trigger_width_samples = camera_trigger_pulse_samples(self.sample_rate)
+        set_impulses(
+            camera_cycle,
+            self.parameters.triggering.n_planes,
+            n_skip_start=self.parameters.triggering.n_skip_start,
+            n_skip_end=self.parameters.triggering.n_skip_end,
+            width_samples=trigger_width_samples,
+        )
+        camera_repeat = np.tile(
+            camera_cycle,
+            repeat_samples // z_period_samples,
+        )
 
-        if self.recorded_signal.is_complete():
-            wave_part = self.recorded_signal.read(i_sample, self.n_samples)
-            max_wave, min_wave = (np.max(wave_part), np.min(wave_part))
-            if (
-                -2 < calc_sync(min_wave, self.parameters.z.galvo_sync) < 2
-                and -2 < calc_sync(max_wave, self.parameters.z.galvo_sync) < 2
-            ):
-                self.board.z_galvo = calc_sync(
-                    wave_part, self.parameters.z.galvo_sync
-                )
+        ao_waveforms = np.zeros((4, repeat_samples), dtype=np.float64)
+        ao_waveforms[0, :] = xy_repeat
+        ao_waveforms[1, :] = z_galvo_repeat
+        ao_waveforms[2, :] = piezo_repeat * self.board.conf["piezo"]["scale"]
+        ao_waveforms[3, :] = camera_repeat
 
-        camera_pulses = 0
-        if self.camera_on:
-            self.logger.log_message("I")
-            if self.camera_was_off:
-                self.logger.log_message("Camera was off")
-                # calculate how many samples are remaining until we are in a new period
-                if i_sample == 0:
-                    camera_pulses = self.camera_pulses.read(i_sample, self.n_samples)
-                    self.camera_was_off = False
-                    self.wait_signal.clear()
-                else:
-                    n_to_next_start = self.n_samples_period() - i_sample
-                    if n_to_next_start < self.n_samples:
-                        camera_pulses = self.camera_pulses.read(
-                            i_sample, self.n_samples
-                        ).copy()
-                        camera_pulses[:n_to_next_start] = 0
-                        self.camera_was_off = False
-                        self.wait_signal.clear()
-            else:
-                camera_pulses = self.camera_pulses.read(i_sample, self.n_samples)
+        return PreparedVolumeWaveforms(
+            ao_waveforms=ao_waveforms,
+            measured_piezo=averaged_piezo,
+            z_period_samples=z_period_samples,
+            repeat_samples=repeat_samples,
+        )
 
-        self.board.camera_trigger = camera_pulses
+    def start_playback(self):
+        if self.prepared_waveforms is None:
+            raise ScanningError("Volume playback requested without prepared waveforms.")
+
+        self.wait_signal.set()
+        self.board.configure_playback(self.prepared_waveforms.ao_waveforms)
+        self.board.start_playback()
+        self.started = True
+        self.wait_signal.clear()
+
+    def loop(self, first_run=False):
+        del first_run
+        self.start_playback()
+        try:
+            while self.loop_condition():
+                sleep(0.05)
+        finally:
+            self.board.stop()
+            self.started = False
+            self.wait_signal.set()
 
 
 def calc_sync(z, sync_coef):

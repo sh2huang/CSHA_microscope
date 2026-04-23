@@ -41,6 +41,7 @@ class ConcurrenceLogger:
         if self.file is not None:
             self.file.flush()
             self.file.close()
+            self.file = None
 
 
 class LoggingProcess(Process):

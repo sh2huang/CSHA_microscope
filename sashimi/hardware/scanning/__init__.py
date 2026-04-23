@@ -17,7 +17,19 @@ class AbstractScanInterface(ABC):
         pass
 
     @abstractmethod
+    def stop(self):
+        pass
+
+    @abstractmethod
     def write(self):
+        pass
+
+    @abstractmethod
+    def configure_playback(self, waveform):
+        pass
+
+    @abstractmethod
+    def start_playback(self):
         pass
 
     @abstractmethod

@@ -15,6 +15,7 @@ class SashimiEvents(AutoName):
     SAVING_STOPPED = auto()
     CLOSE_ALL = auto()
     RESTART_SCANNING = auto()
+    PREPARE_SCANNING = auto()
 
 
 class LoggedEvent:

@@ -3,6 +3,6 @@ from sashimi.hardware.cameras.thorlabs.interface import ThorlabsCamera
 
 # Update this dictionary and add the import above when adding a new camera
 camera_class_dict = dict(
-    hamamatsu=ThorlabsCamera,
+    thorlabs=ThorlabsCamera,
     mock=MockCamera,
 )

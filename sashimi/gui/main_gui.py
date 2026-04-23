@@ -9,7 +9,7 @@ from sashimi.gui.camera_gui import ViewingWidget, CameraSettingsWidget
 from sashimi.gui.save_gui import SaveWidget
 from sashimi.gui.status_bar import StatusBarWidget
 from sashimi.gui.top_bar import TopWidget
-from sashimi.state import State
+from sashimi.state import State, LiveCameraState
 
 
 class DockedWidget(QDockWidget):
@@ -94,12 +94,12 @@ class MainWindow(QMainWindow):
 
     # TODO: Avoid hierarchy in GUI by emitting a PyQt5.QtCore.pyqtSignal() when experiment ends/aborts
     def check_end_experiment(self):
-        if self.st.saver.saver_stopped_signal.is_set():
+        if self.st.saver_stopped_signal.is_set():
             self.st.end_experiment()
             self.refresh_param_values(omit_wid_camera=True)
             self.toolbar.experiment_progress.hide()
             self.toolbar.lbl_experiment_progress.hide()
-            self.st.saver.saver_stopped_signal.clear()
+            self.st.saver_stopped_signal.clear()
             self.toolbar.experiment_toggle_btn.flip_icon(False)
 
         # check if experiment started or ended and update gui enabling
@@ -140,12 +140,28 @@ class StatusWidget(QTabWidget):
         self.addTab(self.wid_calibration, self.option_dict[0])
         self.addTab(self.wid_volume, self.option_dict[1])
 
-        # TODO: delete this line when single-plane scanning mode is implemented
-        # self.setTabEnabled(2, False)
+        self._volume_index = 1
+        self._fallback_index = 0
+        self._internal_tab_change = False
 
         self.currentChanged.connect(self.update_status)
-        # Make sure pulses are displayed the first time we go to volumetric.
         self.currentChanged.connect(self.wid_volume.wid_wave.update_pulses)
+
+        self.timer.timeout.connect(self.refresh_volume_tab_enabled_state)
+        self.refresh_volume_tab_enabled_state()
+
+    def is_camera_running(self):
+        return self.state.live_camera_state == LiveCameraState.RUNNING
+
+    def has_valid_calibration(self):
+        return self.state.has_valid_calibration()
+
+    def refresh_volume_tab_enabled_state(self):
+        camera_running = self.is_camera_running()
+        calibration_ready = self.has_valid_calibration()
+        self.setTabEnabled(self._volume_index, camera_running and calibration_ready)
+        if not calibration_ready and self.currentIndex() == self._volume_index:
+            self.setCurrentIndex(self._fallback_index)
 
     def update_status(self):
         self.state.status.scanning_state = self.option_dict[self.currentIndex()]

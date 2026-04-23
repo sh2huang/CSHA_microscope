@@ -1,5 +1,4 @@
 from multiprocessing import Queue
-from copy import deepcopy
 
 from sashimi.hardware.scanning.scanloops import (
     ScanningState,
@@ -60,6 +59,7 @@ class ScannerProcess(LoggingProcess):
         stop_event: LoggedEvent,
         waiting_event: LoggedEvent,
         restart_event: LoggedEvent,
+        prepare_event: LoggedEvent,
         start_experiment_from_scanner=False,
         n_samples_waveform=10000,
         sample_rate=40000,
@@ -69,6 +69,7 @@ class ScannerProcess(LoggingProcess):
 
         self.stop_event = stop_event.new_reference(self.logger)
         self.restart_event = restart_event.new_reference(self.logger)
+        self.prepare_event = prepare_event.new_reference(self.logger)
         self.wait_signal = waiting_event.new_reference(self.logger)
 
         self.parameter_queue = Queue()
@@ -79,6 +80,7 @@ class ScannerProcess(LoggingProcess):
 
         self.parameters = ScanParameters()
         self.start_experiment_from_scanner = start_experiment_from_scanner
+        self.prepared_volume_waveforms = None
 
     def retrieve_parameters(self):
         new_params = get_last_parameters(self.parameter_queue)
@@ -88,16 +90,26 @@ class ScannerProcess(LoggingProcess):
     def run(self):
         self.logger.log_message("started")
         configurator = scan_conf_dict[conf["scanning"]]
-        first_volume_run = True
         while not self.stop_event.is_set():
+            self.retrieve_parameters()
             if self.parameters.state == ScanningState.PAUSED:
-                self.retrieve_parameters()
                 continue
+
+            force_prepare = self.prepare_event.is_set()
+            if force_prepare:
+                self.prepare_event.clear()
+
             with configurator(self.sample_rate, self.n_samples, conf) as board:
                 if self.parameters.state == ScanningState.PLANAR:
                     loop = PlanarScanLoop
+                    prepared_waveforms = None
                 elif self.parameters.state == ScanningState.VOLUMETRIC:
                     loop = VolumetricScanLoop
+                    prepared_waveforms = self.prepared_volume_waveforms
+
+                loop_kwargs = {}
+                if issubclass(loop, VolumetricScanLoop):
+                    loop_kwargs["prepared_waveforms"] = prepared_waveforms
 
                 scanloop = loop(
                     board,
@@ -111,20 +123,25 @@ class ScannerProcess(LoggingProcess):
                     self.wait_signal,
                     self.logger,
                     self.start_experiment_from_scanner,
+                    **loop_kwargs,
                 )
                 try:
-                    # A hack to skip the first time the volumetric scan loop is run
-                    scanloop.loop(
-                        first_volume_run
-                        if issubclass(loop, VolumetricScanLoop)
-                        else False
-                    )
                     if issubclass(loop, VolumetricScanLoop):
-                        first_volume_run = False
+                        if (
+                            force_prepare
+                            or self.prepared_volume_waveforms is None
+                        ):
+                            self.prepared_volume_waveforms = (
+                                scanloop.prepare_waveforms()
+                            )
+                            scanloop.prepared_waveforms = (
+                                self.prepared_volume_waveforms
+                            )
+                        scanloop.loop()
+                    else:
+                        scanloop.loop(False)
                 except ScanningError as e:
                     warn("NI error " + e.__repr__())
                     scanloop.initialize()
-                self.parameters = deepcopy(
-                    scanloop.parameters
-                )  # set the parameters to the last ones received in the loop
+                self.retrieve_parameters()
         self.close_log()
