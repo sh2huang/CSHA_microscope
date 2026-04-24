@@ -1,0 +1,16 @@
+name: cshascope
+channels:
+  - conda-forge
+dependencies:
+  - python = 3.8
+  - pip
+  - pyqt = 5.15.4
+  - numpy = 1.22.4
+  - scipy = 1.8.1
+  - numba = 0.55.2
+  - pandas = 1.4.4
+  - pytables = 3.6.1
+  - ffmpeg = 3.4.2
+  - scikit-image = 0.19.3
+  - h5py = 3.6.0
+  - vispy = 0.14.2

@@ -8,7 +8,7 @@ from arrayqueues.shared_arrays import ArrayQueue
 
 import numpy as np
 
-from scopecuisine.rolling_buffer import FillingRollingBuffer, RollingBuffer
+from sashimi.rolling_buffer import FillingRollingBuffer, RollingBuffer
 
 from sashimi.config import read_config
 from sashimi.processes.logging import ConcurrenceLogger
