@@ -461,6 +461,8 @@ class State:
             return
 
         self.volume_waveforms_dirty = False
+        self.waveform = None
+        self.scanner.waveform_queue.clear()
         self.prepare_event.set()
         self.restart_volume_playback()
 

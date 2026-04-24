@@ -98,6 +98,7 @@ class ScannerProcess(LoggingProcess):
             force_prepare = self.prepare_event.is_set()
             if force_prepare:
                 self.prepare_event.clear()
+                self.prepared_volume_waveforms = None
 
             with configurator(self.sample_rate, self.n_samples, conf) as board:
                 if self.parameters.state == ScanningState.PLANAR:

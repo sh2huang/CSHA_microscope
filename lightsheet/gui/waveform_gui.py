@@ -36,6 +36,7 @@ class WaveformWidget(QWidget):
         self.timer.timeout.connect(self.update)
         self.state.volume_setting.sig_param_changed.connect(self.update_pulses)
         self.state.camera_settings.sig_param_changed.connect(self.update_pulses)
+        self.update_pulses()
 
     @property
     def camera_exposure_s(self):
@@ -55,7 +56,8 @@ class WaveformWidget(QWidget):
         ]
 
         # The last region is overlaid and marks the current plane:
-        current_pulse = self.pulse_times[self.state.current_plane]
+        current_plane = min(self.state.current_plane, len(self.pulse_times) - 1)
+        current_pulse = self.pulse_times[current_plane]
         self.pulse_regions.append(
             self._create_hspan(
                 (current_pulse, current_pulse + self.camera_exposure_s),
@@ -73,9 +75,12 @@ class WaveformWidget(QWidget):
                 np.arange(len(current_waveform)) / self.sample_rate,
                 current_waveform,
             )
+        else:
+            self.plot_curve.setData([], [])
 
         if len(self.pulse_times) > 0:
-            current_pulse = self.pulse_times[self.state.current_plane]
+            current_plane = min(self.state.current_plane, len(self.pulse_times) - 1)
+            current_pulse = self.pulse_times[current_plane]
             self.pulse_regions[-1].setRegion(
                 (current_pulse, current_pulse + self.camera_exposure_s)
             )
