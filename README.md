@@ -29,6 +29,3 @@ Point-scanning microscope:
 ```bash
 cshascope --pointscan
 ```
-
-The old `sashimi` and `brunoise` startup modules are kept only as compatibility
-wrappers. New launches should go through `cshascope`.

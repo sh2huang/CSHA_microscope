@@ -1,17 +1,11 @@
-from pathlib import Path
-
-from PyQt5.QtGui import QIcon
-
-from cshascope.qt import create_qt_app, execute_qt_app
+from cshascope.qt import create_qt_app, execute_qt_app, get_app_icon
 
 
 def run():
-    from brunoise.gui import TwopViewer
-    import sashimi
+    from pointscan.gui import TwopViewer
 
     app, _style = create_qt_app("CSHAScope Pointscan")
-    icon_path = Path(sashimi.__file__).resolve().parent / "icons" / "main_icon.png"
-    icon = QIcon(str(icon_path))
+    icon = get_app_icon()
     app.setWindowIcon(icon)
 
     viewer = TwopViewer()
