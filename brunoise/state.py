@@ -1,7 +1,7 @@
 from multiprocessing import Event, Queue
 from lightparam import Param
 from lightparam.param_qt import ParametrizedQt
-from scanning import (
+from brunoise.scanning import (
     Scanner,
     ScanningParameters,
     ScanningState,
@@ -11,7 +11,7 @@ from scanning import (
     limit_sample_rate_out,
 )
 from pathlib import Path
-from streaming_save import StackSaver, SavingParameters, SavingStatus
+from brunoise.streaming_save import StackSaver, SavingParameters, SavingStatus
 from arrayqueues.shared_arrays import ArrayQueue
 from queue import Empty
 from PyQt5.QtCore import QObject, pyqtSignal

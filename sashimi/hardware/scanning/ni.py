@@ -2,10 +2,16 @@ from sashimi.hardware.scanning.__init__ import AbstractScanInterface
 
 from contextlib import contextmanager
 
-from nidaqmx.task import Task
-from nidaqmx.constants import Edge, AcquisitionType, RegenerationMode
-from nidaqmx.stream_readers import AnalogSingleChannelReader
-from nidaqmx.stream_writers import AnalogMultiChannelWriter
+try:
+    from nidaqmx.task import Task
+    from nidaqmx.constants import Edge, AcquisitionType, RegenerationMode
+    from nidaqmx.stream_readers import AnalogSingleChannelReader
+    from nidaqmx.stream_writers import AnalogMultiChannelWriter
+except ImportError:
+    from theknights.task import Task
+    from theknights.constants import Edge, AcquisitionType, RegenerationMode
+    from theknights.stream_readers import AnalogSingleChannelReader
+    from theknights.stream_writers import AnalogMultiChannelWriter
 
 import numpy as np
 

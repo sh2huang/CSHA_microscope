@@ -11,8 +11,8 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QCheckBox,
 )
-from state import ExperimentState
-from scanning import (
+from brunoise.state import ExperimentState
+from brunoise.scanning import (
     ScanningParameters,
     dwell_time_s,
     n_output_samples,

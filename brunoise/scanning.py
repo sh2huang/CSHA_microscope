@@ -18,7 +18,7 @@ except ImportError:
 from arrayqueues.shared_arrays import ArrayQueue
 from queue import Empty
 
-import scanning_patterns
+from brunoise import scanning_patterns
 from copy import copy
 from dataclasses import dataclass
 from enum import Enum

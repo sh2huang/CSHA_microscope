@@ -4,9 +4,9 @@ import toml
 from lightparam import set_nested, get_nested
 
 CONFIG_FILENAME = "hardware_config.toml"
-CONFIG_DIR_PATH = Path.home() / ".sashimi"
+CONFIG_DIR_PATH = Path.home() / ".cshascope"
 CONFIG_DIR_PATH.mkdir(exist_ok=True)
-LOGS_DIR_PATH = Path.home() / "logs"
+LOGS_DIR_PATH = CONFIG_DIR_PATH / "logs"
 LOGS_DIR_PATH.mkdir(exist_ok=True)
 
 CONFIG_PATH = CONFIG_DIR_PATH / CONFIG_FILENAME
@@ -21,7 +21,7 @@ TEMPLATE_CONF_DICT = {
         "y": 0.252,
     },
     "default_paths": {
-        "data": str(Path.home()),
+        "data": str(Path.home() / "Desktop"),
         "log": str(LOGS_DIR_PATH),
     },
     "scan_board": {
