@@ -45,7 +45,7 @@ class ScanningParameters:
     n_bin: int = 5
     n_turn: int = 10
     n_extra: int = 100
-    signal_delay_us: float = 80.0
+    signal_delay: float = 80.0
     sample_rate_out: float = 100000.0
     scanning_state: ScanningState = ScanningState.PREVIEW
     n_frames: int = 100
@@ -84,7 +84,7 @@ def dwell_time_s(sp: ScanningParameters):
 
 
 def signal_delay_samples(sp: ScanningParameters):
-    return -int(round(sp.signal_delay_us * sample_rate_in(sp) / 1000000.0))
+    return -int(round(sp.signal_delay * sample_rate_in(sp) / 1000000.0))
 
 
 

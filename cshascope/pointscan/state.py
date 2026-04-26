@@ -46,7 +46,7 @@ class ScanningSettings(ParametrizedQt):
         self.binning = Param(5, (1, 20))
         self.n_turn = Param(10, (0, 100))
         self.n_extra_point = Param(100, (0, 100000))
-        self.signal_delay_us = Param(80.0, (-10000.0, 10000.0), unit="us")
+        self.signal_delay = Param(80.0, (-10000.0, 10000.0), unit="us")
 
 
 def convert_params(st: ScanningSettings, piezo_z_um=0.0) -> ScanningParameters:
@@ -80,7 +80,7 @@ def convert_params(st: ScanningSettings, piezo_z_um=0.0) -> ScanningParameters:
         n_extra=int(st.n_extra_point),
         n_bin=n_bin,
         sample_rate_out=float(sample_rate),
-        signal_delay_us=float(st.signal_delay_us),
+        signal_delay=float(st.signal_delay),
     )
     sp.framerate = frame_rate(sp)
     return sp
