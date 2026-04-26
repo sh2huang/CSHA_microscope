@@ -27,15 +27,14 @@ def main(lightsheet, pointscan, scopeless):
         raise click.UsageError("--scopeless is only valid with --lightsheet.")
 
     if lightsheet:
-        from cshascope.lightsheet import run
+        from cshascope.runners.lightsheet import run
 
         return run(scopeless=scopeless)
 
-    from cshascope.pointscan import run
+    from cshascope.runners.pointscan import run
 
     return run()
 
 
 if __name__ == "__main__":
     main()
-

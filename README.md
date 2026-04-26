@@ -7,6 +7,12 @@ Unified control software for the CSHA microscope.
 ```bash
 conda env create -f environment.yml
 conda activate cshascope
+pip install .
+```
+
+For development:
+
+```bash
 pip install -e .
 ```
 
