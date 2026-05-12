@@ -8,8 +8,6 @@ from arrayqueues.shared_arrays import ArrayQueue
 
 import numpy as np
 
-from cshascope.lightsheet.rolling_buffer import FillingRollingBuffer, RollingBuffer
-
 from cshascope.lightsheet.config import read_config
 from cshascope.lightsheet.processes.logging import ConcurrenceLogger
 from cshascope.lightsheet.utilities import lcm, get_last_parameters
@@ -92,12 +90,13 @@ class PreparedVolumeWaveforms:
 class ScanLoop:
     """General class for the control of the event loop of the scanning, taking
     care of the synchronization between the galvo and piezo scanning and the camera triggering.
-    It has a loop method which is defined only here and not overwritten in sublasses, which controls
-    the main order of events. In this class we handle only the lateral scanning, which is common to calibration,
-    planar, and volumetric acquisitions.
+    In this class we handle only the lateral scanning, which is common to calibration,
+    planar, and volumetric acquisitions. Each child class defines its own loop because
+    the NI task lifecycle is different for calibration, waveform preparation, and
+    volumetric playback.
 
     The class does not implement a Process by itself; instead, the suitable child of this class (depending on
-    the scanning mode) is "mounted" by the ScannerProcess process, and the ScanLoop.loop method is executed.
+    the scanning mode) is "mounted" by the ScannerProcess process, and the child loop method is executed.
 
     """
 
@@ -181,7 +180,7 @@ class ScanLoop:
             self.board.start()
             self.started = True
 
-    def fill_arrays(self):
+    def fill_xy_waveform(self):
         self.shifted_time[:] = self.time + self.i_sample / self.sample_rate
         self.board.xy_galvo = self.xy_waveform.values(self.shifted_time)
 
@@ -195,23 +194,7 @@ class ScanLoop:
         self.n_samples_read += self.board.n_samples
 
     def loop(self, first_run=False):
-        """Main loop that gets executed in the run of the ScannerProcess class.
-        The stop_event regulates breaking out of this loop and
-        returns to the execution of the run of ScannerProcess.
-        """
-        while True:
-            self.update_settings()
-            self.old_parameters = deepcopy(self.parameters)
-            if not self.loop_condition():
-                break
-            self.fill_arrays()
-            self.write()
-            self.check_start()
-            self.read()
-            self.i_sample = (self.i_sample + self.n_samples) % self.n_samples_period()
-            self.n_acquired += 1
-            if first_run:
-                break
+        raise NotImplementedError("ScanLoop subclasses must define their own loop.")
 
 
 class PlanarScanLoop(ScanLoop):
@@ -220,7 +203,7 @@ class PlanarScanLoop(ScanLoop):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.camera_pulses = RollingBuffer(self.n_samples_period())
+        self.prepared_waveforms = None
 
     def loop_condition(self):
         return (
@@ -239,14 +222,66 @@ class PlanarScanLoop(ScanLoop):
             )
             return lcm(n_samples_trigger, super().n_samples_period())
 
-    def fill_arrays(self):
-        # Fill the z values
-        self.board.piezo = self.parameters.z.piezo
-        if isinstance(self.parameters.z, ZManual):
-            self.board.z_galvo = self.parameters.z.galvo
-        super().fill_arrays()
+    def prepare_waveforms(self):
+        if not isinstance(self.parameters.z, ZManual):
+            raise ScanningError("Planar scanning requires manual z parameters.")
 
+        repeat_samples = self.n_samples_period()
+        repeat_time = np.arange(repeat_samples, dtype=np.float64) / self.sample_rate
+
+        ao_waveforms = np.zeros((4, repeat_samples), dtype=np.float64)
+        ao_waveforms[0, :] = self.xy_waveform.values(repeat_time)
+        ao_waveforms[1, :] = self.parameters.z.galvo
+        ao_waveforms[2, :] = (
+            self.parameters.z.piezo * self.board.conf["piezo"]["scale"]
+        )
+        ao_waveforms[3, :] = 0
+
+        return ao_waveforms
+
+    def restart_output(self):
+        if self.started:
+            self.board.stop()
+            self.started = False
+
+        self.wait_signal.set()
+        self.prepared_waveforms = self.prepare_waveforms()
+        self.board.configure_playback(self.prepared_waveforms)
+        self.logger.log_message("configure_playback")
+        self.board.start_playback()
+        self.logger.log_message("start_playback")
+        self.started = True
         self.wait_signal.clear()
+        self.n_acquired += 1
+
+    def loop(self, first_run=False):
+        """Write planar calibration output only when parameters change.
+
+        Calibration does not need piezo feedback. The AO task can regenerate the
+        prepared waveform until a new galvo or piezo setting arrives.
+        """
+        try:
+            while True:
+                previous_parameters = deepcopy(self.parameters)
+                was_first_update = self.first_update
+                updated = self.update_settings()
+                needs_output_update = (
+                    was_first_update
+                    or (updated and self.parameters != previous_parameters)
+                )
+                self.old_parameters = deepcopy(self.parameters)
+                if not self.loop_condition():
+                    break
+                if needs_output_update:
+                    self.restart_output()
+                    self.first_update = False
+                if first_run:
+                    break
+                sleep(0.05)
+        finally:
+            if self.started:
+                self.board.stop()
+                self.started = False
 
 
 class VolumetricScanLoop(ScanLoop):
@@ -275,7 +310,7 @@ class VolumetricScanLoop(ScanLoop):
     def _prepare_block_arrays(self):
         self.board.z_galvo = 0
         self.board.camera_trigger = 0
-        super().fill_arrays()
+        self.fill_xy_waveform()
         self.board.piezo = self.z_waveform.values(self.shifted_time)
 
     def prepare_waveforms(self, n_cycles=10, keep_last=5):
@@ -366,7 +401,9 @@ class VolumetricScanLoop(ScanLoop):
 
         self.wait_signal.set()
         self.board.configure_playback(self.prepared_waveforms.ao_waveforms)
+        self.logger.log_message("configure_playback")
         self.board.start_playback()
+        self.logger.log_message("start_playback")
         self.started = True
         self.wait_signal.clear()
 

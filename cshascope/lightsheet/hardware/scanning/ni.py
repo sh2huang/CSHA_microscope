@@ -76,7 +76,7 @@ class NIBoards(AbstractScanInterface):
             source=self.conf["scan_board"]["sync"]["sample_clock"],
             active_edge=Edge.RISING,
             sample_mode=AcquisitionType.CONTINUOUS,
-            samps_per_chan=self.n_samples,
+            samps_per_chan=self.n_samples * 16,
         )
         self.write_task.timing.cfg_samp_clk_timing(
             rate=self.sample_rate,

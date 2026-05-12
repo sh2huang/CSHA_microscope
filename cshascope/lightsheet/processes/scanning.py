@@ -1,4 +1,5 @@
 from multiprocessing import Queue
+from copy import deepcopy
 
 from cshascope.lightsheet.hardware.scanning.scanloops import (
     ScanningState,
@@ -144,5 +145,6 @@ class ScannerProcess(LoggingProcess):
                 except ScanningError as e:
                     warn("NI error " + e.__repr__())
                     scanloop.initialize()
+                self.parameters = deepcopy(scanloop.parameters)
                 self.retrieve_parameters()
         self.close_log()
