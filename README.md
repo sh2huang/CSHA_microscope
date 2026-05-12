@@ -72,7 +72,7 @@ For the light-sheet mode:
 - Adapted the hardware setting for the course microscope.
 - Added a hardware interface for Thorlabs scientific cameras.
 - Moved camera control into its own state machine.
-- Changed Volume-mode AI/AO handling from real-time read/write to
+- Refined AI/AO handling from real-time read/write to
   precomputed cyclic playback to reduce resource usage.
 
 For the point-scan mode:
