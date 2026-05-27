@@ -44,7 +44,6 @@ class StackSaver(LoggingProcess):
         self,
         stop_event: LoggedEvent,
         is_saving_event: LoggedEvent,
-        duration_queue: Queue,
         max_queue_size=2000,
     ):
         super().__init__(name="saver")
