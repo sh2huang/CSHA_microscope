@@ -31,10 +31,10 @@ class SaveWidget(QWidget):
 
         self.save_location_button.clicked.connect(self.set_save_location)
         self.state.trigger_settings.sig_param_changed.connect(
-            self.state.send_manual_duration
+            self.state.send_save_params
         )
 
-        self.state.send_manual_duration()
+        self.state.send_save_params()
 
     def set_save_location(self):
         save_dir = QFileDialog.getExistingDirectory()

@@ -94,6 +94,7 @@ class ScannerProcess(LoggingProcess):
         while not self.stop_event.is_set():
             self.retrieve_parameters()
             if self.parameters.state == ScanningState.PAUSED:
+                sleep(0.01)
                 continue
 
             force_prepare = self.prepare_event.is_set()

@@ -39,9 +39,9 @@ class ScanningSettings(ParametrizedQt):
         self.name = "scanning"
         self.n_pixel_x = Param(200, (1, 4096))
         self.n_pixel_y = Param(200, (1, 4096))
-        self.galvo_voltage = Param(3.0, (0.2, 5.0), unit="V")
+        self.galvo_voltage = Param(3.0, (0.2, 4.5), unit="V")
         self.output_rate_khz = Param(
-            100.0, (1.0, NI_USB_6363_MAX_AO_SAMPLE_RATE_3_CHANNELS / 1000), unit="kHz"
+            100.0, (10.0, NI_USB_6363_MAX_AO_SAMPLE_RATE_3_CHANNELS / 1000), unit="kHz"
         )
         self.binning = Param(5, (1, 20))
         self.n_turn = Param(10, (0, 100))
@@ -49,7 +49,7 @@ class ScanningSettings(ParametrizedQt):
         self.signal_delay = Param(80.0, (-10000.0, 10000.0), unit="us")
 
 
-def convert_params(st: ScanningSettings, piezo_z_um=0.0) -> ScanningParameters:
+def convert_params(st: ScanningSettings, piezo_z_um: float = 0.0) -> ScanningParameters:
     """
     Converts the GUI scanning settings in parameters appropriate for the
     laser scanning
@@ -68,6 +68,11 @@ def convert_params(st: ScanningSettings, piezo_z_um=0.0) -> ScanningParameters:
     else:
         voltage_x = voltage_max
         voltage_y = voltage_x * n_y / n_x
+
+    ao_limit = 5.0
+    x_margin = max(int(st.n_turn), 1 if int(st.n_extra_point) > 0 else 0)
+    voltage_x = min(voltage_x, ao_limit / (1.0 + 2.0 * x_margin / n_x))
+
     voltage_z = float(np.clip(piezo_z_um / PIEZO_UM_PER_VOLT, 0.0, PIEZO_MAX_VOLTAGE))
 
     sp = ScanningParameters(
@@ -114,13 +119,6 @@ class ExperimentState(QObject):
 
         self.piezo_z_um = 225.0
         self.recording_start_z_um = 0.0
-        self.scanning_settings.sig_param_changed.connect(self.send_scan_params)
-        self.scanning_settings.sig_param_changed.connect(self.send_save_params)
-        self.scanner.start()
-        self.reconstructor.start()
-        self.saver.start()
-        self.open_setup()
-
         self.paused = False
         self.recording = False
         self.current_plane = 0
@@ -130,6 +128,13 @@ class ExperimentState(QObject):
         self.recording_n_planes = None
         self.recording_plane_z_um = None
         self.inverted = True
+
+        self.scanning_settings.sig_param_changed.connect(self.send_scan_params)
+        self.scanning_settings.sig_param_changed.connect(self.send_save_params)
+        self.scanner.start()
+        self.reconstructor.start()
+        self.saver.start()
+        self.open_setup()
 
     @property
     def saving(self):
@@ -145,6 +150,8 @@ class ExperimentState(QObject):
     def start_experiment(self, first_plane=True):
         if first_plane and self.save_in_progress:
             return False
+
+        self.paused = False
 
         if first_plane:
             self.current_plane = 0
@@ -255,6 +262,15 @@ class ExperimentState(QObject):
 
     def send_scan_params(self):
         self.scanning_parameters = convert_params(self.scanning_settings, self.piezo_z_um)
+
+        if self.paused:
+            self.scanning_parameters.scanning_state = ScanningState.PAUSED
+        elif self.recording:
+            self.scanning_parameters.scanning_state = ScanningState.EXPERIMENT_RUNNING
+            self.scanning_parameters.n_frames = self.recording_n_frames
+        else:
+            self.scanning_parameters.scanning_state = ScanningState.PREVIEW
+
         self.scanner.parameter_queue.put(self.scanning_parameters)
         self.reconstructor.parameter_queue.put(self.scanning_parameters)
         self.sig_scanning_changed.emit()

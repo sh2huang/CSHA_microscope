@@ -218,14 +218,19 @@ def convert_save_params(
         scanning_settings.n_skip_start + scanning_settings.n_skip_end
     )
 
+    n_volumes = int(
+        np.ceil(scanning_settings.frequency * trigger_settings.experiment_duration)
+    )
+
     return SavingParameters(
         output_dir=Path(save_settings.save_dir),
         n_planes=n_planes,
+        n_volumes=n_volumes,
         volumerate=scanning_settings.frequency,
         voxel_size=get_voxel_size(scanning_settings, camera_settings),
         crop=[
             int(item) for item in camera_settings.roi
-        ],  # int conversion makes it json serializable
+        ],
     )
 
 def convert_volume_params(
@@ -560,7 +565,6 @@ class State:
                 self.restart_volume_playback()
         else:
             self.send_preview_scansave_settings()
-        self.send_manual_duration()
         self.saver.save_queue.clear()
         self.camera.image_queue.clear()
         time.sleep(0.01)
@@ -676,8 +680,8 @@ class State:
             self.volume_setting.n_planes - self.volume_setting.n_skip_end,
         ) / (self.volume_setting.frequency * self.volume_setting.n_planes)
 
-    def send_manual_duration(self):
-        self.experiment_duration_queue.put(self.trigger_settings.experiment_duration)
+    def send_save_params(self):
+        self.saver.saving_parameter_queue.put(self.save_params)
 
     def wrap_up(self):
         self.stop_event.set()

@@ -24,6 +24,7 @@ class SavingParameters:
     optimal_chunk_MB_RAM: int = conf[
         "array_ram_MB"
     ]  # Experimental value, might be different for different machines.
+    n_volumes: int = 10
     volumerate: float = 1
     voxel_size: tuple = (1, 1, 1)
     crop: tuple = (0, 0, None, None)
@@ -60,12 +61,10 @@ class StackSaver(LoggingProcess):
         self.i_chunk = 0
         self.i_plane = 0
         self.i_volume = 0
-        self.n_volumes = 10
         self.current_data = None
         self.saved_status_queue = Queue()
         self.frame_shape = None
         self.dtype = np.uint16
-        self.duration_queue = duration_queue
 
     def run(self):
         self.logger.log_message("started")
@@ -93,7 +92,7 @@ class StackSaver(LoggingProcess):
         self.current_data = None
 
         while (
-            self.i_volume < self.n_volumes
+            self.i_volume < self.save_parameters.n_volumes
             and self.saving_signal.is_set()
             and not self.stop_event.is_set()
         ):
@@ -146,7 +145,7 @@ class StackSaver(LoggingProcess):
                 i_in_chunk=self.i_in_chunk,
                 i_chunk=self.i_chunk,
                 i_volume=self.i_volume,
-                n_volumes=self.n_volumes,
+                n_volumes=self.save_parameters.n_volumes
             )
         )
 
@@ -163,7 +162,7 @@ class StackSaver(LoggingProcess):
             json.dump(
                 {
                     "shape_full": (
-                        self.n_volumes,
+                        self.save_parameters.n_volumes,
                         *self.current_data.shape[1:],
                     ),
                     "shape_block": (
@@ -207,10 +206,3 @@ class StackSaver(LoggingProcess):
         parameters = get_last_parameters(self.saving_parameter_queue)
         if parameters is not None:
             self.save_parameters = parameters
-
-        # Get duration and update number of volumes:
-        new_duration = get_last_parameters(self.duration_queue)
-        if new_duration is not None:
-            self.n_volumes = int(
-                np.ceil(self.save_parameters.volumerate * new_duration)
-            )
