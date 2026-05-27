@@ -46,7 +46,7 @@ ROI_TEXTS = {
 # Alternatively, it could be set by the conf file, although I don't want to have view-related stuff under "camera"
 class ContrastSettings(ParametrizedQt):
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
         self.name = "image_contrast"
         self.contrast_range = Param((0, 20000), (-50, 65536))
 

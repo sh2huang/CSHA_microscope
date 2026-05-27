@@ -1,5 +1,4 @@
 import numpy as np
-from multiprocessing import Manager as MultiprocessingManager
 from queue import Empty
 from typing import Optional
 from lightparam.param_qt import ParametrizedQt
@@ -56,7 +55,7 @@ class SaveSettings(ParametrizedQt):
 
 class TriggerSettings(ParametrizedQt):
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
         self.name = "trigger_settings"
         self.experiment_duration = Param(5, (1, 50_000), unit="s")
 
@@ -94,7 +93,7 @@ class CalibrationZSettings(ParametrizedQt):
 
 class ZRecordingSettings(ParametrizedQt):
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
         self.name = "scanning/volumetric_recording"
         self.piezo_scan_range = Param((180.0, 220.0), (0.0, 400.0), unit="um")
         self.frequency = Param(3.0, (0.1, 100), unit="volumes/s (Hz)")
@@ -300,15 +299,9 @@ class State:
             stop_event=self.stop_event,
         )
 
-        self.multiprocessing_manager = MultiprocessingManager()
-
-        self.experiment_duration_queue = self.multiprocessing_manager.Queue()
-
-
         self.saver = StackSaver(
             stop_event=self.stop_event,
             is_saving_event=self.is_saving_event,
-            duration_queue=self.experiment_duration_queue,
         )
         self.saver_stopped_signal = self.saver.saver_stopped_signal.new_reference(
             self.logger
