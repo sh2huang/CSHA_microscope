@@ -80,3 +80,5 @@ For the point-scan mode:
 - Added a piezo control module.
 - Replaced externally triggered startup with self-starting acquisition.
 - Changed the computational logic of scanning parameters to match teaching demands.
+- Refined AI/AO handling from real-time read/write to
+  precomputed cyclic playback to reduce resource usage.
