@@ -1,4 +1,7 @@
-from cshascope.lightsheet.hardware.scanning.__init__ import AbstractScanInterface
+from cshascope.lightsheet.hardware.scanning.__init__ import (
+    AbstractScanInterface,
+    ScanningError,
+)
 
 from contextlib import contextmanager
 
@@ -104,6 +107,55 @@ class NIBoards(AbstractScanInterface):
 
     def write(self):
         self.writer.write_many_sample(self.ao_array)
+
+    def measure_piezo_response(self, waveform, n_cycles, timeout=None):
+        n_cycles = int(n_cycles)
+
+        self.configure_playback(waveform)
+
+        cycle_samples = self.playback_waveform.shape[1]
+        total_samples = n_cycles * cycle_samples
+
+        measured_voltage = np.empty(total_samples, dtype=np.float64)
+
+        self.read_task.timing.cfg_samp_clk_timing(
+            rate=self.sample_rate,
+            source=self.conf["scan_board"]["sync"]["sample_clock"],
+            active_edge=Edge.RISING,
+            sample_mode=AcquisitionType.FINITE,
+            samps_per_chan=total_samples,
+        )
+
+        self.read_task.triggers.start_trigger.cfg_dig_edge_start_trig(
+            self.conf["scan_board"]["sync"]["start_trigger"],
+            Edge.RISING,
+        )
+
+        if timeout is None:
+            timeout = max(
+                10.0,
+                2.0 * total_samples / self.sample_rate + 2.0,
+            )
+
+        try:
+            self.read_task.start()
+            self.write_task.start()
+
+            n_read = self.z_reader.read_many_sample(
+                measured_voltage,
+                number_of_samples_per_channel=total_samples,
+                timeout=timeout,
+            )
+
+            if n_read is not None and n_read != total_samples:
+                raise ScanningError(
+                    f"Expected {total_samples} piezo samples, but read {n_read}."
+                )
+
+        finally:
+            self.stop()
+
+        return measured_voltage / self.conf["piezo"]["scale"]
 
     def configure_playback(self, waveform):
         self.stop()

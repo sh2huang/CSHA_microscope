@@ -28,6 +28,18 @@ class MockBoard(AbstractScanInterface):
     def start_playback(self):
         pass
 
+    def measure_piezo_response(self, waveform, n_cycles, timeout=None):
+        del timeout
+
+        waveform = np.asarray(waveform, dtype=np.float64)
+        if waveform.ndim != 2:
+            raise ValueError("waveform must have shape (n_channels, n_samples).")
+        if waveform.shape[0] < 3:
+            raise ValueError("waveform must contain the piezo AO channel.")
+
+        one_cycle = waveform[2, :] / self.conf["piezo"]["scale"]
+        return np.tile(one_cycle, int(n_cycles))
+
     @property
     def piezo(self):
         len_sampling = len(self.piezo_array)

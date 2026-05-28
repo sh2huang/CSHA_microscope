@@ -313,9 +313,25 @@ class VolumetricScanLoop(ScanLoop):
         self.fill_xy_waveform()
         self.board.piezo = self.z_waveform.values(self.shifted_time)
 
+    def _prepare_piezo_probe_waveform(self, z_period_samples):
+        probe_time = np.arange(z_period_samples, dtype=np.float64) / self.sample_rate
+
+        ao_waveforms = np.zeros((4, z_period_samples), dtype=np.float64)
+        ao_waveforms[0, :] = self.xy_waveform.values(probe_time)
+        ao_waveforms[1, :] = 0.0
+        ao_waveforms[2, :] = (
+                self.z_waveform.values(probe_time) * self.board.conf["piezo"]["scale"]
+        )
+        ao_waveforms[3, :] = 0.0
+
+        return ao_waveforms
+
     def prepare_waveforms(self, n_cycles=10, keep_last=5):
         self.wait_signal.set()
         self.initialize()
+
+        n_cycles = int(n_cycles)
+        keep_last = int(keep_last)
 
         self.z_waveform = SawtoothWaveform(
             frequency=self.parameters.z.frequency,
@@ -324,27 +340,25 @@ class VolumetricScanLoop(ScanLoop):
         )
 
         z_period_samples = self.z_period_samples()
-        total_samples = n_cycles * z_period_samples
-        measured_piezo = np.empty(total_samples, dtype=np.float64)
-        write_pos = 0
 
-        while write_pos < total_samples and self.loop_condition():
-            self._prepare_block_arrays()
-            self.write()
-            self.check_start()
-            self.read()
+        probe_waveforms = self._prepare_piezo_probe_waveform(z_period_samples)
 
-            n_copy = min(self.n_samples, total_samples - write_pos)
-            measured_piezo[write_pos: write_pos + n_copy] = self.board.piezo[:n_copy]
-            write_pos += n_copy
-            self.i_sample += self.n_samples
+        total_measurement_time = n_cycles * z_period_samples / self.sample_rate
+        timeout = max(10.0, 2.0 * total_measurement_time + 2.0)
 
-        self.board.stop()
-        self.started = False
+        measured_piezo = self.board.measure_piezo_response(
+            probe_waveforms,
+            n_cycles=n_cycles,
+            timeout=timeout,
+        )
 
-        if write_pos < total_samples:
+        measured_piezo = np.asarray(measured_piezo, dtype=np.float64)
+        expected_samples = n_cycles * z_period_samples
+
+        if measured_piezo.shape[0] != expected_samples:
             raise ScanningError(
-                "Volume waveform preparation interrupted before completion."
+                f"Expected {expected_samples} piezo samples, "
+                f"but got {measured_piezo.shape[0]}."
             )
 
         measured_cycles = measured_piezo.reshape(n_cycles, z_period_samples)
@@ -353,16 +367,18 @@ class VolumetricScanLoop(ScanLoop):
 
         repeat_samples = self.repeat_samples()
         repeat_time = np.arange(repeat_samples, dtype=np.float64) / self.sample_rate
+
         xy_repeat = self.xy_waveform.values(repeat_time)
         piezo_repeat = self.z_waveform.values(repeat_time)
 
-        averaged_piezo_repeat = np.tile(
-            averaged_piezo,
-            repeat_samples // z_period_samples,
-        )
+        n_z_repeats = repeat_samples // z_period_samples
+        averaged_piezo_repeat = np.tile(averaged_piezo, n_z_repeats)
+
         z_galvo_repeat = calc_sync(
-            averaged_piezo_repeat, self.parameters.z.galvo_sync
+            averaged_piezo_repeat,
+            self.parameters.z.galvo_sync,
         )
+
         if np.any(np.abs(z_galvo_repeat) >= 2):
             raise ScanningError(
                 "Prepared z galvo waveform exceeds the configured safe range."
@@ -370,6 +386,7 @@ class VolumetricScanLoop(ScanLoop):
 
         camera_cycle = np.zeros(z_period_samples, dtype=np.float64)
         trigger_width_samples = camera_trigger_pulse_samples(self.sample_rate)
+
         set_impulses(
             camera_cycle,
             self.parameters.triggering.n_planes,
@@ -377,10 +394,8 @@ class VolumetricScanLoop(ScanLoop):
             n_skip_end=self.parameters.triggering.n_skip_end,
             width_samples=trigger_width_samples,
         )
-        camera_repeat = np.tile(
-            camera_cycle,
-            repeat_samples // z_period_samples,
-        )
+
+        camera_repeat = np.tile(camera_cycle, n_z_repeats)
 
         ao_waveforms = np.zeros((4, repeat_samples), dtype=np.float64)
         ao_waveforms[0, :] = xy_repeat
