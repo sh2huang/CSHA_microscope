@@ -77,8 +77,11 @@ def convert_params(st: ScanningSettings, piezo_z_um: float = 0.0) -> ScanningPar
     centered_ao_limit_x = max(0.0, ao_limit - abs(galvo_offset_x))
     centered_ao_limit_y = max(0.0, ao_limit - abs(galvo_offset_y))
     x_margin = max(int(st.n_turn), 1 if int(st.n_extra_point) > 0 else 0)
-    voltage_x = min(voltage_x, centered_ao_limit_x / (1.0 + 2.0 * x_margin / n_x))
-    voltage_y = min(voltage_y, centered_ao_limit_y)
+    max_voltage_x = centered_ao_limit_x / (1.0 + 2.0 * x_margin / n_x)
+    max_voltage_y = centered_ao_limit_y
+    scale = min(1.0, max_voltage_x / voltage_x, max_voltage_y / voltage_y)
+    voltage_x *= scale
+    voltage_y *= scale
 
     voltage_z = float(np.clip(piezo_z_um / PIEZO_UM_PER_VOLT, 0.0, PIEZO_MAX_VOLTAGE))
 

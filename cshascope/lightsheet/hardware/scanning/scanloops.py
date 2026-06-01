@@ -60,6 +60,8 @@ class ZScanning:
     piezo_max: float = 0
     frequency: float = 1
     galvo_sync: Tuple[float, float] = (0.0, 0.0)
+    piezo_measure_cycles: int = 20
+    piezo_average_cycles: int = 5
 
 
 @dataclass
@@ -326,12 +328,17 @@ class VolumetricScanLoop(ScanLoop):
 
         return ao_waveforms
 
-    def prepare_waveforms(self, n_cycles=20, keep_last=5):
+    def prepare_waveforms(self, n_cycles=None, keep_last=None):
         self.wait_signal.set()
         self.initialize()
 
-        n_cycles = int(n_cycles)
-        keep_last = int(keep_last)
+        if n_cycles is None:
+            n_cycles = self.parameters.z.piezo_measure_cycles
+        if keep_last is None:
+            keep_last = self.parameters.z.piezo_average_cycles
+
+        n_cycles = max(1, int(n_cycles))
+        keep_last = max(1, min(int(keep_last), n_cycles))
 
         self.z_waveform = SawtoothWaveform(
             frequency=self.parameters.z.frequency,

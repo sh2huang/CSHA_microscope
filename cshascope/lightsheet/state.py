@@ -100,6 +100,8 @@ class ZRecordingSettings(ParametrizedQt):
         self.n_planes = Param(4, (2, 100))
         self.n_skip_start = Param(1, (0, 20))
         self.n_skip_end = Param(0, (0, 20))
+        self.piezo_measure_cycles = Param(20, (1, 200))
+        self.piezo_average_cycles = Param(5, (1, 200))
 
 
 roi_size = [0, 0] + [
@@ -245,6 +247,8 @@ def convert_volume_params(
             piezo_max=z_setting.piezo_scan_range[1],
             frequency=z_setting.frequency,
             galvo_sync=tuple(calibration.calibration[0]),
+            piezo_measure_cycles=z_setting.piezo_measure_cycles,
+            piezo_average_cycles=z_setting.piezo_average_cycles,
         ),
         triggering=TriggeringParameters(
             n_planes=z_setting.n_planes,
