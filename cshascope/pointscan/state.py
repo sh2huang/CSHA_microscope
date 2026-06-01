@@ -47,6 +47,8 @@ class ScanningSettings(ParametrizedQt):
         self.n_turn = Param(20, (0, 100))
         self.n_extra_point = Param(100, (0, 100000))
         self.signal_delay = Param(190.0, (-10000.0, 10000.0), unit="us")
+        self.galvo_offset_x = Param(0.0, (-1.0, 1.0, 0.1), unit="V")
+        self.galvo_offset_y = Param(0.0, (-1.0, 1.0, 0.1), unit="V")
 
 
 def convert_params(st: ScanningSettings, piezo_z_um: float = 0.0) -> ScanningParameters:
@@ -61,6 +63,8 @@ def convert_params(st: ScanningSettings, piezo_z_um: float = 0.0) -> ScanningPar
     n_x = int(st.n_pixel_x)
     n_y = int(st.n_pixel_y)
 
+    galvo_offset_x = float(np.clip(st.galvo_offset_x, -1.0, 1.0))
+    galvo_offset_y = float(np.clip(st.galvo_offset_y, -1.0, 1.0))
     voltage_max = float(st.galvo_voltage)
     if n_y >= n_x:
         voltage_y = voltage_max
@@ -70,14 +74,19 @@ def convert_params(st: ScanningSettings, piezo_z_um: float = 0.0) -> ScanningPar
         voltage_y = voltage_x * n_y / n_x
 
     ao_limit = 5.0
+    centered_ao_limit_x = max(0.0, ao_limit - abs(galvo_offset_x))
+    centered_ao_limit_y = max(0.0, ao_limit - abs(galvo_offset_y))
     x_margin = max(int(st.n_turn), 1 if int(st.n_extra_point) > 0 else 0)
-    voltage_x = min(voltage_x, ao_limit / (1.0 + 2.0 * x_margin / n_x))
+    voltage_x = min(voltage_x, centered_ao_limit_x / (1.0 + 2.0 * x_margin / n_x))
+    voltage_y = min(voltage_y, centered_ao_limit_y)
 
     voltage_z = float(np.clip(piezo_z_um / PIEZO_UM_PER_VOLT, 0.0, PIEZO_MAX_VOLTAGE))
 
     sp = ScanningParameters(
         voltage_x=float(voltage_x),
         voltage_y=float(voltage_y),
+        galvo_offset_x=galvo_offset_x,
+        galvo_offset_y=galvo_offset_y,
         voltage_z=voltage_z,
         n_x=int(n_x),
         n_y=int(n_y),
@@ -127,7 +136,7 @@ class ExperimentState(QObject):
         self.recording_n_frames = None
         self.recording_n_planes = None
         self.recording_plane_z_um = None
-        self.inverted = True
+        self.inverted = False
 
         self.scanning_settings.sig_param_changed.connect(self.send_scan_params)
         self.scanning_settings.sig_param_changed.connect(self.send_save_params)

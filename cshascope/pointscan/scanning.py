@@ -41,6 +41,8 @@ class ScanningParameters:
     n_y: int = 200
     voltage_x: float = 3
     voltage_y: float = 3
+    galvo_offset_x: float = 0.0
+    galvo_offset_y: float = 0.0
     voltage_z: float = 0
     n_bin: int = 5
     n_turn: int = 10
@@ -114,14 +116,16 @@ class Scanner(Process):
             self.scanning_parameters.n_bin,
         )
         self.scanning_parameters.framerate = frame_rate(self.scanning_parameters)
+        galvo_offset_x = self.scanning_parameters.galvo_offset_x
+        galvo_offset_y = self.scanning_parameters.galvo_offset_y
 
         self.extent_x = (
-            -self.scanning_parameters.voltage_x,
-            self.scanning_parameters.voltage_x,
+            galvo_offset_x - self.scanning_parameters.voltage_x,
+            galvo_offset_x + self.scanning_parameters.voltage_x,
         )
         self.extent_y = (
-            -self.scanning_parameters.voltage_y,
-            self.scanning_parameters.voltage_y,
+            galvo_offset_y - self.scanning_parameters.voltage_y,
+            galvo_offset_y + self.scanning_parameters.voltage_y,
         )
 
         self.n_x = self.scanning_parameters.n_x

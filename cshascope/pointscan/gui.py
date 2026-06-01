@@ -188,6 +188,7 @@ class ScanningWidget(QWidget):
         self.scanning_layout = QVBoxLayout()
 
         self.scanning_settings_gui = ParameterGui(self.state.scanning_settings)
+        self.configure_offset_controls()
         self.scanning_calc = CalculatedParameterDisplay()
         self.chk_inverted = QCheckBox("Inverted")
         self.chk_inverted.setChecked(self.state.inverted)
@@ -212,6 +213,12 @@ class ScanningWidget(QWidget):
         self.scanning_settings_gui.setEnabled(enabled)
         self.chk_inverted.setEnabled(enabled)
         self.pause_button.setEnabled(enabled)
+
+    def configure_offset_controls(self):
+        for name in ("galvo_offset_x", "galvo_offset_y"):
+            widget = self.scanning_settings_gui.param_widgets[name]
+            widget.control.setDecimals(1)
+            widget.control.setSingleStep(0.1)
 
     def update_button(self):
         if self.state.paused:
