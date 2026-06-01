@@ -326,7 +326,7 @@ class VolumetricScanLoop(ScanLoop):
 
         return ao_waveforms
 
-    def prepare_waveforms(self, n_cycles=10, keep_last=5):
+    def prepare_waveforms(self, n_cycles=20, keep_last=5):
         self.wait_signal.set()
         self.initialize()
 

@@ -7,12 +7,12 @@ from contextlib import contextmanager
 
 try:
     from nidaqmx.task import Task
-    from nidaqmx.constants import Edge, AcquisitionType, RegenerationMode
+    from nidaqmx.constants import Edge, AcquisitionType, RegenerationMode, TerminalConfiguration
     from nidaqmx.stream_readers import AnalogSingleChannelReader
     from nidaqmx.stream_writers import AnalogMultiChannelWriter
 except ImportError:
     from theknights.task import Task
-    from theknights.constants import Edge, AcquisitionType, RegenerationMode
+    from theknights.constants import Edge, AcquisitionType, RegenerationMode, TerminalConfiguration
     from theknights.stream_readers import AnalogSingleChannelReader
     from theknights.stream_writers import AnalogMultiChannelWriter
 
@@ -58,6 +58,7 @@ class NIBoards(AbstractScanInterface):
             self.conf["scan_board"]["read"]["channel"],
             min_val=self.conf["scan_board"]["read"]["min_val"],
             max_val=self.conf["scan_board"]["read"]["max_val"],
+            terminal_config=TerminalConfiguration.RSE
         )
 
         # write channels are on xy_galvo, z_galvo, piezo and camera_trigger.

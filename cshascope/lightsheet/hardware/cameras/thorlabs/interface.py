@@ -75,7 +75,7 @@ class ThorlabsCamera(AbstractCamera):
     sensor-pixel coordinates by multiplying the ROI values by self.binning.
     """
 
-    _N_FRAMES_TO_BUFFER = 1000
+    _N_FRAMES_TO_BUFFER = 100
 
     def __init__(self, camera_id, max_sensor_resolution):
         super().__init__(camera_id, max_sensor_resolution)

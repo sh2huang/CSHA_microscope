@@ -5,13 +5,13 @@ try:
     from nidaqmx import Task
     from nidaqmx.stream_readers import AnalogMultiChannelReader
     from nidaqmx.stream_writers import AnalogMultiChannelWriter
-    from nidaqmx.constants import Edge, AcquisitionType, RegenerationMode
+    from nidaqmx.constants import Edge, AcquisitionType, RegenerationMode, TerminalConfiguration
     from nidaqmx.errors import DaqError
 except ImportError:
     from theknights.task import Task
     from theknights.stream_readers import AnalogMultiChannelReader
     from theknights.stream_writers import AnalogMultiChannelWriter
-    from theknights.constants import Edge, AcquisitionType, RegenerationMode
+    from theknights.constants import Edge, AcquisitionType, RegenerationMode, TerminalConfiguration
     from theknights.errors import DaqError
 
 
@@ -159,7 +159,7 @@ class Scanner(Process):
     def setup_tasks(self, read_task, write_task):
         # Configure the acquisition and galvo output lines.
         read_task.ai_channels.add_ai_voltage_chan(
-            "Dev1/ai1", min_val=-2, max_val=2
+            "Dev1/ai1", min_val=-2, max_val=2, terminal_config=TerminalConfiguration.RSE,
         )
         write_task.ao_channels.add_ao_voltage_chan("Dev1/ao0", min_val=-5, max_val=5)
         write_task.ao_channels.add_ao_voltage_chan("Dev1/ao1", min_val=-5, max_val=5)

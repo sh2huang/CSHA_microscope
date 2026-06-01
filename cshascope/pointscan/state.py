@@ -39,14 +39,14 @@ class ScanningSettings(ParametrizedQt):
         self.name = "scanning"
         self.n_pixel_x = Param(200, (1, 4096))
         self.n_pixel_y = Param(200, (1, 4096))
-        self.galvo_voltage = Param(3.0, (0.2, 4.5), unit="V")
+        self.galvo_voltage = Param(3.0, (0.2, 4), unit="V")
         self.output_rate_khz = Param(
             100.0, (10.0, NI_USB_6363_MAX_AO_SAMPLE_RATE_3_CHANNELS / 1000), unit="kHz"
         )
         self.binning = Param(5, (1, 20))
-        self.n_turn = Param(10, (0, 100))
+        self.n_turn = Param(20, (0, 100))
         self.n_extra_point = Param(100, (0, 100000))
-        self.signal_delay = Param(80.0, (-10000.0, 10000.0), unit="us")
+        self.signal_delay = Param(190.0, (-10000.0, 10000.0), unit="us")
 
 
 def convert_params(st: ScanningSettings, piezo_z_um: float = 0.0) -> ScanningParameters:

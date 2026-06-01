@@ -48,11 +48,11 @@ TEMPLATE_CONF_DICT = {
         "id": 0,
         "name": "thorlabs",
         "max_sensor_resolution": [1080, 1920],
-        "default_exposure": 60,
+        "default_exposure": 10,
         "default_binning": 2,
     },
     "thorlabs_sdk": {
-        "dll_dir": r"C:\Users\huang\Downloads\scientific_camera_interfaces_windows-2.1\Scientific Camera Interfaces\SDK\Python Toolkit\dlls\32_lib",
+        "dll_dir": r"C:\Users\all\Documents\dlls\64_lib",
     },
     "array_ram_MB": 450,
 }
